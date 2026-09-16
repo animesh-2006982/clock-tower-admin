@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import "./Admin.css";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, serverTimestamp, onSnapshot } from "firebase/firestore";
 import {
   LayoutDashboard,
@@ -142,120 +143,132 @@ function StatusBadge({ status }) {
 }
 
 /* =========================================================
-   ADMIN LOGIN
+   ADMIN LOGIN — FIREBASE AUTHENTICATION
    ========================================================= */
 
 function AdminLogin({ onLogin, nav }) {
-  const STORAGE_KEY = "kaveri-staff-accounts";
-  const [mode, setMode] = useState("create");
-  const [step, setStep] = useState("form");
-  const [generatedOtp, setGeneratedOtp] = useState("");
-  const [otp, setOtp] = useState("");
-  const [showDemoOtp, setShowDemoOtp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [form, setForm] = useState({ name: "", phone: "", role: "Manager" });
+  const [loading, setLoading] = useState(false);
 
-  const normalizePhone = (value) => String(value || "").replace(/\D/g, "").slice(-10);
-  const getAccounts = () => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    } catch {}
-    return [{ id: "staff-demo", name: "Rahul Mehta", phone: "9876543210", role: "Manager", active: true }];
-  };
-  const saveAccounts = (accounts) => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); return true; } catch { return false; }
-  };
+  const submitLogin = async (event) => {
+    event.preventDefault();
+    setError("");
 
-  useEffect(() => {
-    try { if (!localStorage.getItem(STORAGE_KEY)) saveAccounts(getAccounts()); } catch {}
-  }, []);
+    const cleanEmail = email.trim();
 
-  const clearMessages = () => { setError(""); setSuccess(""); };
-  const update = (key, value) => { setForm((c) => ({ ...c, [key]: value })); clearMessages(); };
-
-  const switchMode = (next) => {
-    setMode(next);
-    setStep(next === "create" ? "form" : "mobile");
-    setOtp(""); setGeneratedOtp(""); setShowDemoOtp(false); clearMessages();
-  };
-
-  const issueOtp = (phoneNumber, nextStep) => {
-    const phone = normalizePhone(phoneNumber);
-    if (phone.length !== 10) { setError("Please enter a valid 10-digit mobile number."); return false; }
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    setForm((c) => ({ ...c, phone }));
-    setGeneratedOtp(code); setOtp(""); setShowDemoOtp(true); setStep(nextStep);
-    setError(""); setSuccess(`Demo OTP: ${code}`); return true;
-  };
-
-  const verifyOtp = () => {
-    if (otp.length !== 4) return setError("Enter the complete 4-digit OTP.");
-    if (otp !== generatedOtp) return setError("Incorrect OTP. Please try again.");
-
-    const phone = normalizePhone(form.phone);
-    const accounts = getAccounts();
-
-    if (mode === "create") {
-      if (accounts.some((item) => normalizePhone(item.phone || item.mobile) === phone)) {
-        setMode("login"); setStep("mobile"); setOtp(""); setGeneratedOtp(""); setShowDemoOtp(false);
-        return setError("This mobile number is already registered. Please login instead.");
-      }
-      const account = { id: `staff-${Date.now()}`, name: form.name.trim(), phone, role: form.role, active: true };
-      if (!saveAccounts([...accounts, account])) return setError("Could not save the staff account in this browser.");
-      try { localStorage.setItem("kaveri-current-staff", JSON.stringify(account)); } catch {}
-      setSuccess("Staff account created successfully.");
-      onLogin(account);
+    if (!cleanEmail) {
+      setError("Please enter your admin email.");
       return;
     }
 
-    const account = accounts.find((item) => normalizePhone(item.phone || item.mobile) === phone);
-    if (!account) { setStep("mobile"); return setError("No staff account found with this mobile number. Create an account first."); }
-    try { localStorage.setItem("kaveri-current-staff", JSON.stringify(account)); } catch {}
-    setShowDemoOtp(false); clearMessages(); onLogin(account);
-  };
-
-  const submitCreate = (event) => {
-    event.preventDefault();
-    const name = form.name.trim();
-    const phone = normalizePhone(form.phone);
-    if (name.length < 2) return setError("Please enter your full name.");
-    if (phone.length !== 10) return setError("Please enter a valid 10-digit mobile number.");
-    if (getAccounts().some((item) => normalizePhone(item.phone || item.mobile) === phone)) {
-      setMode("login"); setStep("mobile");
-      return setError("This mobile number is already registered. Please login instead.");
+    if (!password) {
+      setError("Please enter your password.");
+      return;
     }
-    issueOtp(phone, "createOtp");
-  };
 
-  const submitLogin = (event) => {
-    event.preventDefault();
-    const phone = normalizePhone(form.phone);
-    if (phone.length !== 10) return setError("Please enter a valid 10-digit mobile number.");
-    if (!getAccounts().some((item) => normalizePhone(item.phone || item.mobile) === phone)) return setError("No staff account found. Create an account first.");
-    issueOtp(phone, "loginOtp");
-  };
+    setLoading(true);
 
-  const isCreate = mode === "create";
+    try {
+      const result = await signInWithEmailAndPassword(
+        auth,
+        cleanEmail,
+        password
+      );
+
+      const user = result.user;
+
+      const account = {
+        id: user.uid,
+        uid: user.uid,
+        name: user.displayName || "Clock Tower Admin",
+        email: user.email || cleanEmail,
+        role: "Administrator",
+        active: true,
+      };
+
+      try {
+        localStorage.setItem("kaveri-current-staff", JSON.stringify(account));
+      } catch {}
+
+      onLogin(account);
+    } catch (firebaseError) {
+      console.error("Firebase login error:", firebaseError);
+
+      const code = firebaseError?.code || "";
+
+      if (
+        code === "auth/invalid-credential" ||
+        code === "auth/invalid-login-credentials"
+      ) {
+        setError("Invalid email or password.");
+      } else if (code === "auth/user-not-found") {
+        setError("No admin account found with this email.");
+      } else if (code === "auth/wrong-password") {
+        setError("Incorrect password.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Too many login attempts. Please try again later.");
+      } else if (code === "auth/network-request-failed") {
+        setError("Network error. Please check your internet connection.");
+      } else {
+        setError(firebaseError?.message || "Unable to sign in.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <main className="staff-auth-page">
       <div className="staff-auth-glow staff-auth-glow-one" />
       <div className="staff-auth-glow staff-auth-glow-two" />
+
       <section className="staff-auth-shell">
         <div className="staff-auth-visual">
-          <div className="staff-auth-brand"><div className="staff-auth-brand-mark">K</div><div><strong>Kaveri Kitchen</strong><span>STAFF MANAGEMENT</span></div></div>
+          <div className="staff-auth-brand">
+            <div className="staff-auth-brand-mark">C</div>
+            <div>
+              <strong>Clock Tower</strong>
+              <span>STAFF MANAGEMENT</span>
+            </div>
+          </div>
+
           <div className="staff-auth-visual-copy">
             <span className="staff-auth-kicker">PRIVATE STAFF PORTAL</span>
-            <h1 style={serif}>Run the restaurant<br /><span>beautifully.</span></h1>
-            <p>Manage menus, orders, kitchen operations, inventory and guest service from one refined workspace.</p>
+            <h1 style={serif}>
+              Run the restaurant
+              <br />
+              <span>beautifully.</span>
+            </h1>
+            <p>
+              Manage menus, orders, kitchen operations, inventory and guest
+              service from one refined workspace.
+            </p>
           </div>
+
           <div className="staff-auth-mini-grid">
-            <div><ChefHat size={18} /><span>Kitchen</span><strong>Live control</strong></div>
-            <div><ClipboardList size={18} /><span>Orders</span><strong>Instant updates</strong></div>
-            <div><Warehouse size={18} /><span>Inventory</span><strong>Stock aware</strong></div>
-            <div><CreditCard size={18} /><span>Payments</span><strong>UPI ready</strong></div>
+            <div>
+              <ChefHat size={18} />
+              <span>Kitchen</span>
+              <strong>Live control</strong>
+            </div>
+            <div>
+              <ClipboardList size={18} />
+              <span>Orders</span>
+              <strong>Instant updates</strong>
+            </div>
+            <div>
+              <Warehouse size={18} />
+              <span>Inventory</span>
+              <strong>Stock aware</strong>
+            </div>
+            <div>
+              <CreditCard size={18} />
+              <span>Payments</span>
+              <strong>UPI ready</strong>
+            </div>
           </div>
         </div>
 
@@ -263,48 +276,93 @@ function AdminLogin({ onLogin, nav }) {
           <div className="staff-auth-card">
             <div className="staff-auth-head">
               <div>
-                <span className="staff-auth-card-kicker">{isCreate ? "JOIN THE TEAM" : "WELCOME BACK"}</span>
-                <h2 style={serif}>{isCreate ? "Create staff account" : "Staff login"}</h2>
-                <p>{isCreate ? "Create your staff profile with mobile verification before entering the dashboard." : "Login securely with your registered mobile number and 4-digit OTP."}</p>
+                <span className="staff-auth-card-kicker">WELCOME BACK</span>
+                <h2 style={serif}>Admin login</h2>
+                <p>
+                  Sign in with the administrator account created in Firebase
+                  Authentication.
+                </p>
               </div>
-              <div className="staff-auth-secure-icon"><Phone size={21} /></div>
+
+              <div className="staff-auth-secure-icon">
+                <SettingsIcon size={21} />
+              </div>
             </div>
 
-            <div className="staff-auth-mode-switch" role="tablist">
-              <button type="button" className={!isCreate ? "active" : ""} onClick={() => switchMode("login")}>Log in</button>
-              <button type="button" className={isCreate ? "active" : ""} onClick={() => switchMode("create")}>Create account</button>
-            </div>
+            <form className="staff-auth-form" onSubmit={submitLogin}>
+              <div className="staff-auth-field">
+                <label>Admin email</label>
+                <div className="staff-auth-input-wrap">
+                  <UserCircle2 size={17} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setError("");
+                    }}
+                    placeholder="admin@example.com"
+                    autoComplete="email"
+                    autoFocus
+                  />
+                </div>
+              </div>
 
-            {isCreate && step === "form" && (
-              <form className="staff-auth-form" onSubmit={submitCreate}>
-                <div className="staff-auth-field"><label>Full name</label><div className="staff-auth-input-wrap"><UserCircle2 size={17} /><input value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Your full name" autoComplete="name" /></div></div>
-                <div className="staff-auth-field"><label>Mobile number</label><div className="staff-auth-input-wrap"><Phone size={16} /><input value={form.phone} onChange={(e) => update("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="98765 43210" autoComplete="tel" inputMode="numeric" maxLength={10} /></div></div>
-                <div className="staff-auth-field"><label>Role</label><div className="staff-auth-input-wrap"><ChefHat size={16} /><select value={form.role} onChange={(e) => update("role", e.target.value)}><option>Manager</option><option>Kitchen Staff</option><option>Cashier</option><option>Delivery Staff</option><option>Waiter</option><option>Inventory Manager</option></select></div></div>
-                <button type="submit" className="staff-auth-submit"><span>Verify mobile</span><ChevronLeft size={17} style={{ transform: "rotate(180deg)" }} /></button>
-              </form>
-            )}
+              <div className="staff-auth-field">
+                <label>Password</label>
+                <div className="staff-auth-input-wrap">
+                  <SettingsIcon size={16} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError("");
+                    }}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    className="staff-password-toggle"
+                    onClick={() => setShowPassword((value) => !value)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    <Eye size={16} />
+                  </button>
+                </div>
+              </div>
 
-            {!isCreate && step === "mobile" && (
-              <form className="staff-auth-form" onSubmit={submitLogin}>
-                <div className="staff-auth-field"><label>Registered mobile number</label><div className="staff-auth-input-wrap"><Phone size={16} /><input value={form.phone} onChange={(e) => update("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="98765 43210" autoComplete="tel" inputMode="numeric" maxLength={10} /></div></div>
-                <button type="submit" className="staff-auth-submit"><span>Send 4-digit OTP</span><ChevronLeft size={17} style={{ transform: "rotate(180deg)" }} /></button>
-                <div className="staff-auth-login-hint">Demo staff number: <strong>9876543210</strong></div>
-              </form>
-            )}
+              <button
+                type="submit"
+                className="staff-auth-submit"
+                disabled={loading}
+              >
+                <span>{loading ? "Signing in..." : "Sign in to dashboard"}</span>
+                {loading ? (
+                  <Sparkles size={17} />
+                ) : (
+                  <ChevronLeft
+                    size={17}
+                    style={{ transform: "rotate(180deg)" }}
+                  />
+                )}
+              </button>
+            </form>
 
-            {(step === "createOtp" || step === "loginOtp") && (
-              <div className="staff-auth-form">
-                <div className="staff-otp-banner"><div className="staff-otp-icon"><Check size={18} /></div><div><strong>Verify +91 {normalizePhone(form.phone)}</strong><span>Enter the 4-digit OTP to continue.</span></div></div>
-                {showDemoOtp && <button type="button" className="staff-demo-otp" onClick={() => setOtp(generatedOtp)}>Demo OTP: <strong>{generatedOtp}</strong><span>Tap to fill</span></button>}
-                <div className="staff-auth-field"><label>4-digit OTP</label><input className="staff-otp-input" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} placeholder="••••" autoFocus /></div>
-                <button type="button" className="staff-auth-submit" onClick={verifyOtp}><span>{isCreate ? "Create account" : "Verify & enter dashboard"}</span><Check size={17} /></button>
-                <button type="button" className="staff-auth-demo" onClick={() => { setStep(isCreate ? "form" : "mobile"); setOtp(""); setGeneratedOtp(""); setShowDemoOtp(false); clearMessages(); }}>Change mobile number</button>
+            {error && (
+              <div className="staff-auth-message error">
+                <AlertTriangle size={15} />
+                {error}
               </div>
             )}
 
-            {error && <div className="staff-auth-message error">{error}</div>}
-            {success && <div className="staff-auth-message success"><Check size={15} />{success}</div>}
-            <div className="staff-auth-card-footer"><button type="button" onClick={() => nav("landing")}>← Back to restaurant site</button><span>Staff-only access · Mobile OTP</span></div>
+            <div className="staff-auth-card-footer">
+              <button type="button" onClick={() => nav("landing")}>
+                ← Back to restaurant site
+              </button>
+              <span>Staff-only access · Firebase Authentication</span>
+            </div>
           </div>
         </div>
       </section>
