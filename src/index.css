@@ -1,0 +1,51 @@
+:root {
+  --ink: #4c1504;
+  --primary: #ff6b4a;
+  --muted: #8a7770;
+  --line: rgba(76, 21, 4, 0.12);
+  --green: #4f8a5d;
+  --red: #c84632;
+  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --shadow-sm: 0 8px 24px rgba(76, 21, 4, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, Helvetica, sans-serif;
+  background: #f7f1ed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+img {
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
