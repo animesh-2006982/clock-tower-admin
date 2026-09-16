@@ -3812,10 +3812,13 @@ function AdminSettings({
               },
               { merge: true }
             );
+
             alert("Website name saved successfully.");
           } catch (error) {
             console.error("Website name sync failed:", error);
-            alert("Saved locally, but could not sync the website name to Firebase. Please check Firestore Rules.");
+            alert(
+              "Saved locally, but could not sync the website name to Firebase. Please check Firestore Rules."
+            );
           }
         }}
         style={{
