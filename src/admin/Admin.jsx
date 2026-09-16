@@ -3701,7 +3701,7 @@ function AdminSettings({
         }}
       >
         <AdminField
-          label="Hotel name"
+          label="Website name"
           value={form.name}
           onChange={(value) =>
             setForm({
@@ -3789,11 +3789,34 @@ function AdminSettings({
       </div>
 
       <button
-        onClick={() => {
-          setHotel(form);
-          alert(
-            "Hotel settings saved."
-          );
+        onClick={async () => {
+          const nextHotel = {
+            ...hotel,
+            ...form,
+            name: String(form.name || "").trim()
+          };
+
+          if (!nextHotel.name) {
+            alert("Please enter a website name.");
+            return;
+          }
+
+          setHotel(nextHotel);
+
+          try {
+            await setDoc(
+              doc(db, "settings", "hotel"),
+              {
+                name: nextHotel.name,
+                updatedAt: serverTimestamp()
+              },
+              { merge: true }
+            );
+            alert("Website name saved successfully.");
+          } catch (error) {
+            console.error("Website name sync failed:", error);
+            alert("Saved locally, but could not sync the website name to Firebase. Please check Firestore Rules.");
+          }
         }}
         style={{
           ...btnBrass,
